@@ -2,6 +2,27 @@
 
 The first MCP server for ordering Starbucks coffee using AI! Built with Playwright automation and the Model Context Protocol.
 
+## ⚠️ Important Disclaimers
+
+**UNOFFICIAL & EDUCATIONAL USE ONLY**
+
+- This project is **NOT affiliated with, endorsed by, or connected to Starbucks Corporation** in any way
+- **Use at your own risk** - This tool may violate Starbucks Terms of Service
+- **For educational and personal use only** - Not intended for commercial use
+- **You are financially responsible** for all orders placed through this tool
+- **No warranty** - Provided "AS IS" without warranty of any kind (see LICENSE)
+- Your Starbucks account may be banned for using automated tools
+- Starbucks may request this repository be taken down at any time
+
+**FINANCIAL SAFETY:**
+- ✅ **Every order requires manual confirmation** - Orders are NOT automatically placed
+- ✅ **Review flow built-in** - You see the order details before confirming
+- ⚠️ **Always verify** order details, prices, and totals before confirming
+- ⚠️ **Monitor your account** - Check your bank statements regularly
+- 🚨 **Emergency stop** - Close the browser immediately if something goes wrong
+
+By using this software, you acknowledge these risks and agree to use it responsibly.
+
 ## Features
 
 - 🔐 **Browser-based authentication** - Log in once, order anytime
@@ -91,7 +112,29 @@ This MCP server uses Playwright to automate the Starbucks website:
 2. **Session Management**: Saves cookies for future orders
 3. **Order Automation**: Navigates the menu, selects items, and adds to cart
 4. **Review Flow**: Shows you the order before placing it
-5. **Confirmation**: Places the order when you approve
+5. **Confirmation**: Places the order **ONLY when you explicitly approve**
+
+### Safety Features
+
+- **No automatic ordering** - Every order stops at the cart for your review
+- **Explicit confirmation required** - You must run `confirm_starbucks_order` to place the order
+- **Cancel anytime** - Use `cancel_starbucks_order` to abort before confirmation
+- **Order details shown** - See items, prices (when available), and location before confirming
+- **Session-based** - You control when the browser opens and closes
+
+### Troubleshooting
+
+**If something goes wrong:**
+1. Close the browser window immediately
+2. Check your Starbucks app/account for pending orders
+3. Cancel any unwanted orders in the Starbucks app
+4. Delete `starbucks-session.json` to force re-authentication
+5. Use `cancel_starbucks_order` before confirming to abort
+
+**Common issues:**
+- Orders fail to add items → Website may have changed, headless mode issues
+- Session expired → Run `login_starbucks` again
+- Wrong location → Specify location explicitly in order commands
 
 ## Requirements
 
