@@ -24,11 +24,13 @@ export class StarbucksClient {
   private favoritesPath: string;
   private sessionPath: string;
   private favorites: StarbucksFavorite[] = [];
-  private pendingOrder: { items: StarbucksItem[]; location: string } | null = null;
+  private pendingOrder: { items: StarbucksItem[]; location: string; storeAddress?: string } | null = null;
+  private defaultLocation: string;
 
   constructor() {
     this.favoritesPath = path.join(process.cwd(), "starbucks-favorites.json");
     this.sessionPath = path.join(process.cwd(), "starbucks-session.json");
+    this.defaultLocation = process.env.STARBUCKS_DEFAULT_LOCATION || "2165 Polk St, San Francisco, CA 94109, USA";
   }
 
   async initialize() {
@@ -230,7 +232,7 @@ export class StarbucksClient {
     }
   }
 
-  async orderFavorite(favoriteName: string, location: string = "Polk Street") {
+  async orderFavorite(favoriteName: string, location?: string) {
     const favorite = this.favorites.find((f) => f.name === favoriteName);
     if (!favorite) {
       throw new Error(`Favorite "${favoriteName}" not found`);
@@ -239,8 +241,11 @@ export class StarbucksClient {
     return await this.placeOrder(favorite.items, location);
   }
 
-  async placeOrder(items: StarbucksItem[], location: string = "Polk Street") {
+  async placeOrder(items: StarbucksItem[], location?: string) {
     let page = await this.ensureBrowserOpen();
+
+    // Use provided location, or fall back to default
+    const targetLocation = location || this.defaultLocation;
 
     try {
       // Check if user is logged in first
@@ -279,14 +284,8 @@ export class StarbucksClient {
         }
       }
 
-      // Convert location name to full address
-      const addressMap: { [key: string]: string } = {
-        "Polk Street": "2165 Polk St, San Francisco, CA 94109, USA",
-        "polk street": "2165 Polk St, San Francisco, CA 94109, USA",
-        "polk": "2165 Polk St, San Francisco, CA 94109, USA",
-      };
-
-      const address = addressMap[location.toLowerCase()] || "2165 Polk St, San Francisco, CA 94109, USA";
+      // Use the target location directly (it's already a full address)
+      const address = targetLocation;
 
       // Navigate to store locator first
       await page.goto("https://www.starbucks.com/menu/store-locator", { waitUntil: "networkidle", timeout: 15000 });
@@ -303,6 +302,10 @@ export class StarbucksClient {
       await storeInput.fill(address);
       await storeInput.press("Enter");
       await page.waitForTimeout(3000);
+
+      // Get store info before clicking order
+      const storeAddress = await page.locator('[class*="store"] [class*="address"]').first().textContent().catch(() => address);
+      const storeName = await page.locator('[class*="store"] [class*="name"]').first().textContent().catch(() => null);
 
       // Click on the "Order Here" button for the selected store
       try {
@@ -332,7 +335,7 @@ export class StarbucksClient {
       await page.waitForTimeout(3000); // Additional wait for total calculation
 
       // Store pending order for approval
-      this.pendingOrder = { items, location };
+      this.pendingOrder = { items, location: targetLocation, storeAddress: storeAddress?.trim() || undefined };
 
       const itemDescriptions = items.map((item) => {
         if (item.type === "drink") {
@@ -344,7 +347,8 @@ export class StarbucksClient {
       // Scrape order details from the page
       let orderSummary: any = {
         items: itemDescriptions,
-        location: location,
+        store: storeName?.trim() || "Starbucks",
+        storeAddress: storeAddress?.trim() || address,
       };
 
       try {
@@ -555,7 +559,7 @@ export class StarbucksClient {
   async customOrder(
     drinks: Array<{ name: string; size: string }>,
     food: string[],
-    location: string = "Polk Street"
+    location?: string
   ) {
     const items: StarbucksItem[] = [
       ...drinks.map((d) => ({
@@ -567,6 +571,147 @@ export class StarbucksClient {
     ];
 
     return await this.placeOrder(items, location);
+  }
+
+  async getMenu(location?: string, query?: string) {
+    const page = await this.ensureBrowserOpen();
+
+    // Use provided location, or fall back to default
+    const targetLocation = location || this.defaultLocation;
+
+    try {
+      const address = targetLocation;
+
+      // Navigate to store locator first
+      await page.goto("https://www.starbucks.com/menu/store-locator", { waitUntil: "networkidle", timeout: 15000 });
+      await page.waitForTimeout(2000);
+
+      // Find the "Find a store" input and enter address
+      const storeInput = page.locator('input[name="place"]').first();
+      try {
+        await storeInput.waitFor({ state: "visible", timeout: 10000 });
+      } catch (error) {
+        throw new Error("Could not find store search input. The page may have changed or failed to load.");
+      }
+
+      await storeInput.fill(address);
+      await storeInput.press("Enter");
+      await page.waitForTimeout(3000);
+
+      // Click on the "Order Here" button for the selected store
+      try {
+        await page.locator('button:has-text("Order Here"), button.sb-button--positive').first().click({ timeout: 10000 });
+      } catch (error) {
+        throw new Error("Could not find 'Order Here' button for the store. The store may not be available for ordering.");
+      }
+      await page.waitForTimeout(2000);
+
+      // Now scrape menu items from different categories
+      const menuItems: {
+        drinks: { name: string; categories: string[] }[];
+        food: { name: string; categories: string[] }[];
+      } = {
+        drinks: [],
+        food: [],
+      };
+
+      // Scrape hot coffee
+      await page.goto("https://www.starbucks.com/menu/drinks/hot-coffee", { waitUntil: "networkidle" });
+      await page.waitForTimeout(1000);
+      const hotCoffeeLinks = await page.locator('a[href*="/menu/product/"]').all();
+      for (const link of hotCoffeeLinks) {
+        const text = await link.textContent();
+        if (text && !text.toLowerCase().includes('traveler')) {
+          const normalizedText = text.trim();
+          if (normalizedText) {
+            menuItems.drinks.push({ name: normalizedText, categories: ["hot-coffee"] });
+          }
+        }
+      }
+
+      // Scrape cold coffee
+      await page.goto("https://www.starbucks.com/menu/drinks/cold-coffee", { waitUntil: "networkidle" });
+      await page.waitForTimeout(1000);
+      const coldCoffeeLinks = await page.locator('a[href*="/menu/product/"]').all();
+      for (const link of coldCoffeeLinks) {
+        const text = await link.textContent();
+        if (text && !text.toLowerCase().includes('traveler')) {
+          const normalizedText = text.trim();
+          if (normalizedText) {
+            const existing = menuItems.drinks.find(d => d.name === normalizedText);
+            if (existing) {
+              existing.categories.push("cold-coffee");
+            } else {
+              menuItems.drinks.push({ name: normalizedText, categories: ["cold-coffee"] });
+            }
+          }
+        }
+      }
+
+      // Scrape breakfast food
+      await page.goto("https://www.starbucks.com/menu/food/breakfast", { waitUntil: "networkidle" });
+      await page.waitForTimeout(1000);
+      const breakfastLinks = await page.locator('a[href*="/menu/product/"]').all();
+      for (const link of breakfastLinks) {
+        const text = await link.textContent();
+        if (text) {
+          const normalizedText = text.trim();
+          if (normalizedText) {
+            menuItems.food.push({ name: normalizedText, categories: ["breakfast"] });
+          }
+        }
+      }
+
+      // Scrape lunch food
+      await page.goto("https://www.starbucks.com/menu/food/lunch", { waitUntil: "networkidle" });
+      await page.waitForTimeout(1000);
+      const lunchLinks = await page.locator('a[href*="/menu/product/"]').all();
+      for (const link of lunchLinks) {
+        const text = await link.textContent();
+        if (text) {
+          const normalizedText = text.trim();
+          if (normalizedText) {
+            const existing = menuItems.food.find(f => f.name === normalizedText);
+            if (existing) {
+              existing.categories.push("lunch");
+            } else {
+              menuItems.food.push({ name: normalizedText, categories: ["lunch"] });
+            }
+          }
+        }
+      }
+
+      // Filter by query if provided
+      if (query) {
+        const searchLower = query.toLowerCase();
+        const filteredDrinks = menuItems.drinks.filter(drink =>
+          drink.name.toLowerCase().includes(searchLower)
+        );
+        const filteredFood = menuItems.food.filter(food =>
+          food.name.toLowerCase().includes(searchLower)
+        );
+
+        return {
+          success: true,
+          query: query,
+          location: location,
+          results: {
+            drinks: filteredDrinks,
+            food: filteredFood,
+          },
+          note: "Use these exact item names when placing orders. Drinks require a size (tall, grande, or venti).",
+        };
+      }
+
+      return {
+        success: true,
+        location: targetLocation,
+        menu: menuItems,
+        note: "Use these exact item names when placing orders. Drinks require a size (tall, grande, or venti).",
+      };
+    } catch (error) {
+      throw new Error(`Failed to get menu: ${error}`);
+    }
   }
 
   async close() {

@@ -61,7 +61,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "order_starbucks_favorite",
-        description: "Order a saved Starbucks favorite (e.g., 'Morning Coffee Run', 'Breakfast')",
+        description: "Order a saved Starbucks favorite (e.g., 'Morning Coffee Run', 'Breakfast'). IMPORTANT: If order fails due to item names not found, use get_starbucks_menu first to get exact item names.",
         inputSchema: {
           type: "object",
           properties: {
@@ -71,8 +71,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             location: {
               type: "string",
-              description: "Store location (default: Polk Street)",
-              default: "Polk Street",
+              description: "Optional: Full store address. If not provided, uses default location from environment.",
             },
           },
           required: ["favoriteName"],
@@ -80,7 +79,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "order_starbucks_custom",
-        description: "Place a custom Starbucks order with specific drinks and food",
+        description: "Place a custom Starbucks order with specific drinks and food. IMPORTANT: Always use get_starbucks_menu first to get exact item names before ordering.",
         inputSchema: {
           type: "object",
           properties: {
@@ -112,8 +111,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             location: {
               type: "string",
-              description: "Store location (default: Polk Street)",
-              default: "Polk Street",
+              description: "Optional: Full store address. If not provided, uses default location from environment.",
             },
           },
         },
@@ -167,6 +165,23 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         inputSchema: {
           type: "object",
           properties: {},
+        },
+      },
+      {
+        name: "get_starbucks_menu",
+        description: "Get the full menu of available items at a Starbucks location, or search for specific items by providing a query",
+        inputSchema: {
+          type: "object",
+          properties: {
+            location: {
+              type: "string",
+              description: "Optional: Full store address (e.g., '2165 Polk St, San Francisco, CA'). If not provided, uses default location from environment.",
+            },
+            query: {
+              type: "string",
+              description: "Optional: Search query to filter menu items (e.g., 'cold brew', 'breakfast sandwich')",
+            },
+          },
         },
       },
     ],
@@ -229,7 +244,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case "order_starbucks_favorite": {
         const favoriteName = args?.favoriteName as string;
-        const location = (args?.location as string) || "Polk Street";
+        const location = args?.location as string | undefined;
 
         if (!favoriteName) {
           throw new Error("favoriteName is required");
@@ -249,7 +264,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "order_starbucks_custom": {
         const drinks = (args?.drinks as Array<{ name: string; size: string }>) || [];
         const food = (args?.food as string[]) || [];
-        const location = (args?.location as string) || "Polk Street";
+        const location = args?.location as string | undefined;
 
         const result = await starbucksClient.customOrder(drinks, food, location);
         return {
@@ -299,6 +314,20 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case "cancel_starbucks_order": {
         const result = await starbucksClient.cancelOrder();
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(result, null, 2),
+            },
+          ],
+        };
+      }
+
+      case "get_starbucks_menu": {
+        const location = args?.location as string | undefined;
+        const query = args?.query as string;
+        const result = await starbucksClient.getMenu(location, query);
         return {
           content: [
             {
